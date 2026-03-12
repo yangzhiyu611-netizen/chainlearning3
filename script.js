@@ -256,11 +256,29 @@
 
   function getChineseGloss(meaning) {
     if (!meaning) return '';
-    // 去掉前面的词性等英文部分，只保留中文释义
     var s = meaning.replace(/^[A-Za-z .；;]+/, '').trim();
-    // 优先取第一段，便于在例句中匹配
     var first = s.split(/[；;，,]/)[0];
     return (first || s).trim();
+  }
+
+  // 复习题标红：例句中可能用与 meaning 不同的说法，生成多个候选短语，只要例句出现任一则标红
+  function getReviewHighlightCandidates(item) {
+    var meaning = item.meaning || '';
+    var gloss = getChineseGloss(meaning);
+    var candidates = [];
+    if (gloss) candidates.push(gloss);
+    // “X的应用” 在句中常为 “X应用”，去掉“的”
+    if (gloss.indexOf('的') !== -1) {
+      candidates.push(gloss.replace(/的/g, ''));
+    }
+    // “具有X意义的应用” → 句中多为 “X性应用”
+    var match = gloss.match(/具有(.+?)意义的应用/);
+    if (match) candidates.push(match[1] + '性应用');
+    // inclusive 类：释义常为“普惠性”，例句可能用“包容性”
+    if (gloss === '普惠性发展') candidates.push('包容性发展');
+    if (gloss === '普惠性应用；面向更广人群的应用' || gloss === '普惠性应用') candidates.push('普惠性应用');
+    if (gloss.indexOf('普惠性创新') !== -1 || (item.term === 'inclusive innovation' && gloss.indexOf('普惠') !== -1)) candidates.push('包容性创新');
+    return candidates;
   }
 
   // 真题演练：句子与答案
@@ -746,12 +764,17 @@
     }
 
     var zhSentence = item.exampleZh || '';
-    var gloss = getChineseGloss(item.meaning || '');
+    var candidates = getReviewHighlightCandidates(item);
     var meaningHtml = escapeHtml(zhSentence);
-    if (gloss) {
-      var safeGloss = escapeHtml(gloss);
-      if (meaningHtml.indexOf(safeGloss) !== -1) {
-        meaningHtml = meaningHtml.replace(safeGloss, '<span class="review-meaning-gloss">' + safeGloss + '</span>');
+    // 按长度从长到短试，优先标红最长匹配，避免短词把长词拆开
+    candidates.sort(function (a, b) { return b.length - a.length; });
+    for (var c = 0; c < candidates.length; c++) {
+      var phrase = candidates[c];
+      if (!phrase) continue;
+      var safePhrase = escapeHtml(phrase);
+      if (meaningHtml.indexOf(safePhrase) !== -1) {
+        meaningHtml = meaningHtml.replace(safePhrase, '<span class="review-meaning-gloss">' + safePhrase + '</span>');
+        break;
       }
     }
 
@@ -759,7 +782,7 @@
     section.className = 'app-main review-page';
     section.innerHTML =
       '<div class="review-header">' +
-        '<h2 class="review-title"真题复现</h2>' +
+        '<h2 class="review-title">真题复现</h2>' +
         '<p class="review-desc">结合句子语境，选出标红中文的英语释义</p>' +
       '</div>' +
       '<div class="review-body">' +
