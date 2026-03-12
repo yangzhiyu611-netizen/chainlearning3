@@ -406,12 +406,81 @@
     return null;
   }
 
-  function speakTerm(text) {
+  var speechPrefs = {
+    voice: null,
+    voicesReady: false
+  };
+
+  function pickBestEnglishVoice(voices) {
+    if (!voices || !voices.length) return null;
+    // 优先更“自然”的系统/云端英文音色（不同系统名字不同，做一组偏好）
+    var preferredNames = [
+      'Samantha', // macOS 常见
+      'Alex',
+      'Google US English',
+      'Google UK English Female',
+      'Microsoft Aria Online',
+      'Microsoft Jenny Online',
+      'Microsoft Guy Online'
+    ];
+    var en = voices.filter(function (v) { return (v.lang || '').toLowerCase().indexOf('en') === 0; });
+    if (!en.length) en = voices;
+
+    // 先按名字匹配
+    for (var i = 0; i < preferredNames.length; i++) {
+      for (var j = 0; j < en.length; j++) {
+        if ((en[j].name || '').indexOf(preferredNames[i]) !== -1) return en[j];
+      }
+    }
+    // 再偏向本地 voice（一般更稳定）
+    var local = en.filter(function (v) { return v.localService; });
+    if (local.length) return local[0];
+    return en[0] || null;
+  }
+
+  function ensureVoicesReady() {
+    if (!window.speechSynthesis) return;
+    var voices = window.speechSynthesis.getVoices();
+    if (voices && voices.length) {
+      speechPrefs.voicesReady = true;
+      if (!speechPrefs.voice) speechPrefs.voice = pickBestEnglishVoice(voices);
+    }
+  }
+
+  // 某些浏览器需要 voiceschanged 事件后才有 voice 列表
+  if (window.speechSynthesis && typeof window.speechSynthesis.onvoiceschanged !== 'undefined') {
+    window.speechSynthesis.onvoiceschanged = function () {
+      ensureVoicesReady();
+    };
+  }
+  ensureVoicesReady();
+
+  function speakTerm(text, mode) {
     if (!text || !window.speechSynthesis) return;
+    ensureVoicesReady();
     window.speechSynthesis.cancel();
     var u = new SpeechSynthesisUtterance(text);
-    u.lang = 'en-US';
-    u.rate = 0.9;
+
+    // 语音与参数：减少“播报腔”，更接近自然语流
+    // mode: 'word' | 'phrase' | 'sentence'
+    var m = mode || (text.indexOf(' ') === -1 ? 'word' : 'phrase');
+    u.lang = (speechPrefs.voice && speechPrefs.voice.lang) ? speechPrefs.voice.lang : 'en-US';
+    if (speechPrefs.voice) u.voice = speechPrefs.voice;
+
+    // 不同内容用不同节奏；加极小随机扰动降低机械感
+    var jitter = (Math.random() - 0.5) * 0.06; // [-0.03, 0.03]
+    if (m === 'sentence') {
+      u.rate = 0.92 + jitter;
+      u.pitch = 1.0;
+    } else if (m === 'phrase') {
+      u.rate = 0.90 + jitter;
+      u.pitch = 1.02;
+    } else {
+      // 单词：稍慢一点、更清晰
+      u.rate = 0.86 + jitter;
+      u.pitch = 1.06;
+    }
+    u.volume = 1.0;
     window.speechSynthesis.speak(u);
   }
 
@@ -688,12 +757,12 @@
         state.practiceUserAnswers = blanks.slice();
         state.practiceResults = blanks.map(function (a, idx) { return a === PRACTICE.answers[idx]; });
         state.practiceSubmitted = true;
-        speakTerm(getPracticeFullSentence(PRACTICE.answers));
+        speakTerm(getPracticeFullSentence(PRACTICE.answers), 'sentence');
         render();
       };
     } else {
       section.querySelector('[data-action="practice-speak"]').onclick = function () {
-        speakTerm(getPracticeFullSentence(PRACTICE.answers));
+        speakTerm(getPracticeFullSentence(PRACTICE.answers), 'sentence');
       };
       section.querySelector('[data-action="practice-done"]').onclick = function () {
         state.phase = 'review';
